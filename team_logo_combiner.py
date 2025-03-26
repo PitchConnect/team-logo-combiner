@@ -40,12 +40,30 @@ def merge_images_from_urls(url1, url2, output_path):
         # Crop transparent border from the second image
         image2_cropped = crop_transparent_border(image2)
 
-        # Now use the CROPPED images for merging
+        # Get dimensions of cropped images
         width1, height1 = image1_cropped.size
         width2, height2 = image2_cropped.size
 
+        # Determine target height (using the smaller height)
+        target_height = min(height1, height2)
+
+        # Resize the larger image to match the target height, maintaining aspect ratio
+        if height1 > height2:
+            ratio = target_height / float(height1)
+            new_width1 = int(width1 * ratio)
+            image1_cropped = image1_cropped.resize((new_width1, target_height),
+                                                   Image.Resampling.LANCZOS)  # Use LANCZOS for good quality
+            width1, height1 = image1_cropped.size  # Update dimensions
+        elif height2 > height1:
+            ratio = target_height / float(height2)
+            new_width2 = int(width2 * ratio)
+            image2_cropped = image2_cropped.resize((new_width2, target_height),
+                                                   Image.Resampling.LANCZOS)  # Use LANCZOS for good quality
+            width2, height2 = image2_cropped.size  # Update dimensions
+
+        # Now use the RESIZED and CROPPED images for merging
         combined_width = width1 + width2
-        combined_height = max(height1, height2)
+        combined_height = max(height1, height2)  # height1 and height2 should be approximately equal now
 
         padding_horizontal = int(combined_width * 0.10)
         padding_vertical = int(combined_height * 0.10)
@@ -65,7 +83,8 @@ def merge_images_from_urls(url1, url2, output_path):
 
         rgb_image = new_image.convert('RGB')
         rgb_image.save(output_path)
-        print(f"Merged image saved to: {output_path} (Square with padding, TRANSPARENT BORDERS CROPPED)")
+        print(
+            f"Merged image saved to: {output_path} (Square with padding, TRANSPARENT BORDERS CROPPED, LOGOS RESIZED FOR BALANCE)")
 
     except requests.exceptions.RequestException as e:
         print(f"Error downloading image: {e}")
