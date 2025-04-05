@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  whatsapp-avatar-service:
+    container_name: whatsapp-avatar-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: whatsapp-avatar-app
+    ports:
+      - "5002:5002"
+    networks:
+      - fogis-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      # Optional: Mount custom assets directory if you want to update assets without rebuilding
+      - ./assets:/app/assets:ro
+    environment:
+
+      - TZ=Europe/Stockholm
+      # Add environment variables here if needed in the future
+      - FLASK_ENV=production
+      - LOG_LEVEL=INFO
+
+networks:
+  fogis-network:
+    # If the network already exists and should be used (not created)
+    external: true
