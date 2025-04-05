@@ -6,8 +6,6 @@ A service that combines two team logos into a single avatar image with a backgro
 
 This project includes comprehensive error handling, logging, and testing. It is ready for production use.
 
-![Example Combined Logo](docs/example_combined_logo.png)
-
 ## Architecture
 
 The service is built using the following technologies:
@@ -101,19 +99,19 @@ docker-compose logs -f
 ### Project Structure
 
 ```
-.
-├── app.py                  # Flask application
-├── team_logo_combiner.py   # Core image processing logic
-├── assets/                 # Background images and other assets
-│   └── grass_turf.jpg      # Default background image
-├── Dockerfile              # Container definition
-├── docker-compose.yml      # Service configuration
-├── requirements.txt        # Python dependencies
-├── tests/                  # Test suite
-│   ├── conftest.py         # Test configuration
-│   ├── test_app.py         # API tests
-│   └── test_team_logo_combiner.py  # Core logic tests
-└── run_tests.sh            # Script to run tests
+./
+|-- app.py                  # Flask application
+|-- team_logo_combiner.py   # Core image processing logic
+|-- assets/                 # Background images and other assets
+|   |-- grass_turf.jpg      # Default background image
+|-- Dockerfile              # Container definition
+|-- docker-compose.yml      # Service configuration
+|-- requirements.txt        # Python dependencies
+|-- tests/                  # Test suite
+|   |-- conftest.py         # Test configuration
+|   |-- test_app.py         # API tests
+|   |-- test_team_logo_combiner.py  # Core logic tests
+|-- run_tests.sh            # Script to run tests
 ```
 
 ### Running Tests
