@@ -3,13 +3,17 @@ Error handling module for the Team Logo Combiner service.
 Provides centralized error handling for the Flask application.
 """
 
-import logging
 from flask import jsonify
 import requests
 from PIL import Image, UnidentifiedImageError
 
-# Configure logger
-logger = logging.getLogger(__name__)
+# Import logging configuration if available
+try:
+    import logging_config
+    logger = logging_config.get_logger(__name__)
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
 
 class APIError(Exception):
     """Base class for API errors."""
@@ -45,7 +49,7 @@ class ProcessingError(APIError):
 
 def handle_api_error(error):
     """Handle APIError exceptions."""
-    logger.error(f"{error.__class__.__name__}: {error.message}", 
+    logger.error(f"{error.__class__.__name__}: {error.message}",
                  extra={"details": error.details})
     return jsonify(error.to_dict()), error.status_code
 

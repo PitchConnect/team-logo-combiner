@@ -1,15 +1,15 @@
 from flask import Flask, request, send_file, jsonify
 import team_logo_combiner
 from io import BytesIO
-import logging
 import os
 import time
 import error_handler
 from error_handler import ValidationError, ProcessingError
+import logging_config
 
 # --- Logging Setup for Flask App ---
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-app_logger = logging.getLogger(__name__) # Get logger for this Flask app
+logging_config.configure_logging()
+app_logger = logging_config.get_logger(__name__) # Get logger for this Flask app
 
 # --- Initialize Flask App ---
 app = Flask(__name__)
