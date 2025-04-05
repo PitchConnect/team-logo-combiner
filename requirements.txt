@@ -1,3 +1,6 @@
 flask
 Pillow
 requests
+pytest
+pytest-flask
+pytest-mock
