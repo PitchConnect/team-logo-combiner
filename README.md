@@ -2,6 +2,10 @@
 
 A service that combines two team logos into a single avatar image with a background. This service is designed to create WhatsApp group avatars for matches between two teams.
 
+## Project Status
+
+This project includes comprehensive error handling, logging, and testing. It is ready for production use.
+
 ![Example Combined Logo](docs/example_combined_logo.png)
 
 ## Architecture
