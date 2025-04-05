@@ -1,8 +1,16 @@
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import requests
 from io import BytesIO
 import logging
 import pathlib
+import os
+
+# Import error handler if running as part of the Flask app
+try:
+    from error_handler import ValidationError, ResourceNotFoundError, ProcessingError
+    HAS_ERROR_HANDLER = True
+except ImportError:
+    HAS_ERROR_HANDLER = False
 
 # --- Constants and Paths ---
 BASE_LOGO_URL = "https://staticcdn.svenskfotboll.se/img/teams/"
@@ -30,29 +38,85 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
     """
     Merges two images from URLs, crops borders, resizes, and combines into a square canvas.
     Returns a PIL Image object.
+
+    Raises:
+        requests.exceptions.HTTPError: If the logo URLs return non-200 status codes
+        requests.exceptions.ConnectionError: If there's a network error
+        UnidentifiedImageError: If the image data cannot be processed
+        ProcessingError: If image processing fails
+        ResourceNotFoundError: If resources like background images are not found
     """
     try:
+        # Validate URLs
+        if not url1 or not isinstance(url1, str):
+            error_msg = "Invalid URL for logo 1"
+            logging.error(error_msg)
+            if HAS_ERROR_HANDLER:
+                raise ValidationError(error_msg, {"url": url1})
+            return None
+
+        if not url2 or not isinstance(url2, str):
+            error_msg = "Invalid URL for logo 2"
+            logging.error(error_msg)
+            if HAS_ERROR_HANDLER:
+                raise ValidationError(error_msg, {"url": url2})
+            return None
+
+        # Fetch and process first logo
         logging.info(f"Fetching logo 1 from: {url1}")
-        response1 = requests.get(url1, stream=True)
-        response1.raise_for_status()
-        image1 = Image.open(BytesIO(response1.content)).convert("RGBA")
+        try:
+            response1 = requests.get(url1, stream=True, timeout=10)
+            response1.raise_for_status()
+            image1 = Image.open(BytesIO(response1.content)).convert("RGBA")
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"Failed to fetch logo 1: HTTP error {e.response.status_code}"
+            logging.error(error_msg)
+            if HAS_ERROR_HANDLER:
+                raise ResourceNotFoundError(error_msg, {"url": url1, "status_code": e.response.status_code})
+            return None
+        except (requests.exceptions.RequestException, UnidentifiedImageError) as e:
+            error_msg = f"Error processing logo 1: {str(e)}"
+            logging.error(error_msg)
+            if HAS_ERROR_HANDLER:
+                raise ProcessingError(error_msg, {"url": url1})
+            return None
 
         logging.info("Cropping transparent border for logo 1")
         image1_cropped = crop_transparent_border(image1)
         if not image1_cropped or image1_cropped.size == (0, 0):
-             logging.error(f"Logo 1 from {url1} seems to be fully transparent or invalid after cropping.")
-             return None # Indicate failure
+            error_msg = f"Logo 1 from {url1} seems to be fully transparent or invalid after cropping."
+            logging.error(error_msg)
+            if HAS_ERROR_HANDLER:
+                raise ProcessingError(error_msg, {"url": url1})
+            return None
 
+        # Fetch and process second logo
         logging.info(f"Fetching logo 2 from: {url2}")
-        response2 = requests.get(url2, stream=True)
-        response2.raise_for_status()
-        image2 = Image.open(BytesIO(response2.content)).convert("RGBA")
+        try:
+            response2 = requests.get(url2, stream=True, timeout=10)
+            response2.raise_for_status()
+            image2 = Image.open(BytesIO(response2.content)).convert("RGBA")
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"Failed to fetch logo 2: HTTP error {e.response.status_code}"
+            logging.error(error_msg)
+            if HAS_ERROR_HANDLER:
+                raise ResourceNotFoundError(error_msg, {"url": url2, "status_code": e.response.status_code})
+            return None
+        except (requests.exceptions.RequestException, UnidentifiedImageError) as e:
+            error_msg = f"Error processing logo 2: {str(e)}"
+            logging.error(error_msg)
+            if HAS_ERROR_HANDLER:
+                raise ProcessingError(error_msg, {"url": url2})
+            return None
 
         logging.info("Cropping transparent border for logo 2")
         image2_cropped = crop_transparent_border(image2)
         if not image2_cropped or image2_cropped.size == (0, 0):
-             logging.error(f"Logo 2 from {url2} seems to be fully transparent or invalid after cropping.")
-             return None # Indicate failure
+            error_msg = f"Logo 2 from {url2} seems to be fully transparent or invalid after cropping."
+            logging.error(error_msg)
+            if HAS_ERROR_HANDLER:
+                raise ProcessingError(error_msg, {"url": url2})
+            return None
 
         width1, height1 = image1_cropped.size
         width2, height2 = image2_cropped.size
@@ -98,25 +162,46 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
 
         try:
             logging.info(f"Loading background image from: {bg_path_to_use}")
-            background = Image.open(bg_path_to_use).convert('RGBA')
-            bg_width, bg_height = background.size
-            if bg_width <= 0 or bg_height <= 0:
-                logging.warning(f"Background image '{bg_path_to_use}' has zero dimension. Skipping background.")
+            if not os.path.exists(bg_path_to_use):
+                error_msg = f"Background image not found at '{bg_path_to_use}'"
+                logging.warning(f"{error_msg}. Using transparent background.")
+                if HAS_ERROR_HANDLER:
+                    # Non-fatal error, just log a warning
+                    logging.warning(error_msg)
             else:
-                min_bg_dimension = min(bg_width, bg_height)
-                left = (bg_width - min_bg_dimension) // 2
-                top = (bg_height - min_bg_dimension) // 2
-                right = left + min_bg_dimension
-                bottom = top + min_bg_dimension
-                cropped_background = background.crop((left, top, right, bottom))
-                resized_background = cropped_background.resize((canvas_size, canvas_size), Image.Resampling.LANCZOS)
-                new_image.paste(resized_background, (0, 0))
-                logging.info(f"Applied background image: {bg_path_to_use}")
-
-        except FileNotFoundError:
-            logging.warning(f"Background image not found at '{bg_path_to_use}'. Using transparent background.")
+                try:
+                    background = Image.open(bg_path_to_use).convert('RGBA')
+                    bg_width, bg_height = background.size
+                    if bg_width <= 0 or bg_height <= 0:
+                        logging.warning(f"Background image '{bg_path_to_use}' has zero dimension. Skipping background.")
+                    else:
+                        min_bg_dimension = min(bg_width, bg_height)
+                        left = (bg_width - min_bg_dimension) // 2
+                        top = (bg_height - min_bg_dimension) // 2
+                        right = left + min_bg_dimension
+                        bottom = top + min_bg_dimension
+                        cropped_background = background.crop((left, top, right, bottom))
+                        resized_background = cropped_background.resize((canvas_size, canvas_size), Image.Resampling.LANCZOS)
+                        new_image.paste(resized_background, (0, 0))
+                        logging.info(f"Applied background image: {bg_path_to_use}")
+                except UnidentifiedImageError as e:
+                    error_msg = f"Invalid background image format at '{bg_path_to_use}': {e}"
+                    logging.warning(f"{error_msg}. Using transparent background.")
+                    if HAS_ERROR_HANDLER:
+                        # Non-fatal error, just log a warning
+                        logging.warning(error_msg)
+                except Exception as e:
+                    error_msg = f"Error processing background image '{bg_path_to_use}': {e}"
+                    logging.warning(f"{error_msg}. Using transparent background.")
+                    if HAS_ERROR_HANDLER:
+                        # Non-fatal error, just log a warning
+                        logging.warning(error_msg)
         except Exception as e:
-            logging.warning(f"Error processing background image '{bg_path_to_use}': {e}. Using transparent background.")
+            error_msg = f"Unexpected error with background image '{bg_path_to_use}': {e}"
+            logging.warning(f"{error_msg}. Using transparent background.")
+            if HAS_ERROR_HANDLER:
+                # Non-fatal error, just log a warning
+                logging.warning(error_msg)
 
         x_offset1 = padding_horizontal
         y_offset1 = (canvas_size - height1) // 2
@@ -132,13 +217,28 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         return new_image # Return the PIL Image object
 
     except requests.exceptions.HTTPError as e:
-         logging.error(f"HTTP error fetching logo: {e}")
-         return None
+        error_msg = f"HTTP error fetching logo: {e}"
+        logging.error(error_msg)
+        if HAS_ERROR_HANDLER:
+            raise ResourceNotFoundError(error_msg, {"url": e.request.url if hasattr(e, 'request') else "unknown"})
+        return None
     except requests.exceptions.RequestException as e:
-        logging.error(f"Network error downloading image: {e}")
+        error_msg = f"Network error downloading image: {e}"
+        logging.error(error_msg)
+        if HAS_ERROR_HANDLER:
+            raise ProcessingError(error_msg, {"url": e.request.url if hasattr(e, 'request') else "unknown"})
+        return None
+    except UnidentifiedImageError as e:
+        error_msg = f"Invalid image format: {e}"
+        logging.error(error_msg)
+        if HAS_ERROR_HANDLER:
+            raise ProcessingError(error_msg)
         return None
     except Exception as e:
-        logging.error(f"An unexpected error occurred during image processing: {e}", exc_info=True)
+        error_msg = f"An unexpected error occurred during image processing: {e}"
+        logging.error(error_msg, exc_info=True)
+        if HAS_ERROR_HANDLER:
+            raise ProcessingError(error_msg)
         return None
 
 if __name__ == "__main__":
