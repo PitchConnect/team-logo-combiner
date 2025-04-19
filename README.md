@@ -155,6 +155,17 @@ The following environment variables can be set in the docker-compose.yml file:
 4. Test the API endpoints
 5. Commit and push your changes
 
+### CI/CD Pipeline
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+- **Automated Testing**: All tests are automatically run on every push and pull request
+- **Code Quality**: Linting is performed to ensure code quality
+- **Docker Image Building**: Docker images are automatically built and published to GitHub Container Registry
+- **Deployment**: Changes to the main branch are automatically deployed to production
+
+The CI/CD pipeline configuration can be found in `.github/workflows/ci-cd.yml`.
+
 ## Troubleshooting
 
 ### Common Issues
