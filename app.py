@@ -9,7 +9,7 @@ import logging_config
 
 # --- Logging Setup for Flask App ---
 logging_config.configure_logging()
-app_logger = logging_config.get_logger(__name__) # Get logger for this Flask app
+app_logger = logging_config.get_logger(__name__)  # Get logger for this Flask app
 
 # --- Initialize Flask App ---
 app = Flask(__name__)
@@ -18,8 +18,9 @@ app = Flask(__name__)
 app = error_handler.register_error_handlers(app)
 
 # --- Define Assets Path (within Docker image) ---
-ASSETS_DIR = "/app/assets" # Assuming 'assets' folder will be in the root of the Docker image
+ASSETS_DIR = "/app/assets"  # Assuming 'assets' folder will be in the root of the Docker image
 DEFAULT_BACKGROUND_PATH = os.path.join(ASSETS_DIR, "grass_turf.jpg")
+
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -33,6 +34,7 @@ def health_check():
         "service": "whatsapp-avatar-service",
         "timestamp": time.time()
     })
+
 
 @app.route('/create_avatar', methods=['POST'])
 def create_avatar():
@@ -57,7 +59,7 @@ def create_avatar():
         )
 
     # Validate field values
-    team1_id = str(data['team1_id']).strip() # Ensure IDs are strings and trim whitespace
+    team1_id = str(data['team1_id']).strip()  # Ensure IDs are strings and trim whitespace
     team2_id = str(data['team2_id']).strip()
 
     if not team1_id:
@@ -95,6 +97,7 @@ def create_avatar():
     img_io.seek(0)
     return send_file(img_io, mimetype='image/png')
 
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)
-    logging.info("After app.run() - Did app.run() return unexpectedly?") # Add this line
+    app_logger.info("After app.run() - Did app.run() return unexpectedly?")  # Add this line

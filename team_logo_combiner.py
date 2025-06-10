@@ -31,6 +31,7 @@ ASSETS_DIR_NAME = "assets"
 DEFAULT_BG_FILENAME = "grass_turf.jpg"
 DEFAULT_BG_PATH = SCRIPT_DIR / ASSETS_DIR_NAME / DEFAULT_BG_FILENAME
 
+
 def sanitize_image_data(image_data):
     """
     Remove null bytes and other problematic characters from image data.
@@ -64,7 +65,7 @@ def sanitize_image_data(image_data):
 
         if sanitized_size < (original_size * 0.3):  # If we removed more than 70%
             logger.error(f"Too much data removed during sanitization: {removed_bytes} bytes "
-                        f"({removal_percentage:.1f}%) - image may be severely corrupted")
+                         f"({removal_percentage:.1f}%) - image may be severely corrupted")
             return None
 
         logger.info(f"Successfully sanitized image data: {removed_bytes} null bytes removed")
@@ -72,6 +73,7 @@ def sanitize_image_data(image_data):
 
     # No null bytes found, return original data
     return image_data
+
 
 def download_with_retry(url, max_retries=3, base_delay=1.0, timeout=10):
     """
@@ -99,10 +101,12 @@ def download_with_retry(url, max_retries=3, base_delay=1.0, timeout=10):
                 logger.error(f"Client error {e.response.status_code} for {url} - not retrying")
                 raise
             elif attempt == max_retries:
-                logger.error(f"Server error {e.response.status_code if e.response else 'unknown'} for {url} - final attempt failed")
+                status = e.response.status_code if e.response else 'unknown'
+                logger.error(f"Server error {status} for {url} - final attempt failed")
                 raise
             else:
-                logger.warning(f"Server error {e.response.status_code if e.response else 'unknown'} for {url} - will retry")
+                status = e.response.status_code if e.response else 'unknown'
+                logger.warning(f"Server error {status} for {url} - will retry")
 
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             if attempt == max_retries:
@@ -120,6 +124,7 @@ def download_with_retry(url, max_retries=3, base_delay=1.0, timeout=10):
             time.sleep(total_delay)
 
     return None
+
 
 def create_fallback_logo(team_id, size=(200, 200)):
     """
@@ -156,7 +161,7 @@ def create_fallback_logo(team_id, size=(200, 200)):
         # Draw a colored circle
         margin = size[0] // 8
         draw.ellipse([margin, margin, size[0] - margin, size[1] - margin],
-                    fill=(r, g, b, 255), outline=(255, 255, 255, 255), width=3)
+                     fill=(r, g, b, 255), outline=(255, 255, 255, 255), width=3)
 
         logger.info(f"Created fallback logo for team {team_id} with color ({r}, {g}, {b})")
         return image
@@ -170,10 +175,11 @@ def create_fallback_logo(team_id, size=(200, 200)):
             draw = ImageDraw.Draw(image)
             margin = size[0] // 8
             draw.ellipse([margin, margin, size[0] - margin, size[1] - margin],
-                        fill=(128, 128, 128, 255), outline=(255, 255, 255, 255), width=3)
-        except:
+                         fill=(128, 128, 128, 255), outline=(255, 255, 255, 255), width=3)
+        except Exception:
             pass
         return image
+
 
 def process_image_response(response, url):
     """
@@ -213,6 +219,7 @@ def process_image_response(response, url):
         logger.error(f"Failed to process image from {url}: {e}")
         return None
 
+
 def crop_transparent_border(image):
     """Automatically crops transparent borders from an image."""
     if image.mode != 'RGBA':
@@ -224,6 +231,7 @@ def crop_transparent_border(image):
     else:
         logger.warning("Attempted to crop a fully transparent image. Returning original.")
         return image
+
 
 def merge_images_from_urls(url1, url2, background_image_path=None):
     """
@@ -278,10 +286,11 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
                     return None
 
         except requests.exceptions.HTTPError as e:
-            error_msg = f"Failed to fetch logo 1: HTTP error {e.response.status_code if e.response else 'unknown'}"
+            status = e.response.status_code if e.response else 'unknown'
+            error_msg = f"Failed to fetch logo 1: HTTP error {status}"
             logger.error(error_msg)
             if HAS_ERROR_HANDLER:
-                raise ResourceNotFoundError(error_msg, {"url": url1, "status_code": e.response.status_code if e.response else None})
+                raise ResourceNotFoundError(error_msg, {"url": url1, "status_code": status})
             return None
         except (requests.exceptions.RequestException, UnidentifiedImageError) as e:
             error_msg = f"Error processing logo 1: {str(e)}"
@@ -324,10 +333,11 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
                     return None
 
         except requests.exceptions.HTTPError as e:
-            error_msg = f"Failed to fetch logo 2: HTTP error {e.response.status_code if e.response else 'unknown'}"
+            status = e.response.status_code if e.response else 'unknown'
+            error_msg = f"Failed to fetch logo 2: HTTP error {status}"
             logger.error(error_msg)
             if HAS_ERROR_HANDLER:
-                raise ResourceNotFoundError(error_msg, {"url": url2, "status_code": e.response.status_code if e.response else None})
+                raise ResourceNotFoundError(error_msg, {"url": url2, "status_code": status})
             return None
         except (requests.exceptions.RequestException, UnidentifiedImageError) as e:
             error_msg = f"Error processing logo 2: {str(e)}"
@@ -358,19 +368,19 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
             ratio = target_height / float(height1)
             new_width1 = int(width1 * ratio)
             if new_width1 > 0 and target_height > 0:
-                 image1_cropped = image1_cropped.resize((new_width1, target_height), Image.Resampling.LANCZOS)
-                 width1, height1 = image1_cropped.size
+                image1_cropped = image1_cropped.resize((new_width1, target_height), Image.Resampling.LANCZOS)
+                width1, height1 = image1_cropped.size
             else:
-                 logger.warning("Skipping resize for logo 1 due to zero dimension calculation.")
+                logger.warning("Skipping resize for logo 1 due to zero dimension calculation.")
         elif height2 > target_height:
             logger.info(f"Resizing logo 2 (height {height2}) to target height ({target_height})")
             ratio = target_height / float(height2)
             new_width2 = int(width2 * ratio)
             if new_width2 > 0 and target_height > 0:
-                 image2_cropped = image2_cropped.resize((new_width2, target_height), Image.Resampling.LANCZOS)
-                 width2, height2 = image2_cropped.size
+                image2_cropped = image2_cropped.resize((new_width2, target_height), Image.Resampling.LANCZOS)
+                width2, height2 = image2_cropped.size
             else:
-                 logger.warning("Skipping resize for logo 2 due to zero dimension calculation.")
+                logger.warning("Skipping resize for logo 2 due to zero dimension calculation.")
 
         combined_width = width1 + width2
         combined_height = target_height
@@ -408,7 +418,8 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
                         right = left + min_bg_dimension
                         bottom = top + min_bg_dimension
                         cropped_background = background.crop((left, top, right, bottom))
-                        resized_background = cropped_background.resize((canvas_size, canvas_size), Image.Resampling.LANCZOS)
+                        resized_background = cropped_background.resize(
+                            (canvas_size, canvas_size), Image.Resampling.LANCZOS)
                         new_image.paste(resized_background, (0, 0))
                         logger.info(f"Applied background image: {bg_path_to_use}")
                 except UnidentifiedImageError as e:
@@ -441,7 +452,7 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         new_image.paste(image1_cropped, (x_offset1, y_offset1), mask=mask1)
         new_image.paste(image2_cropped, (x_offset2, y_offset2), mask=mask2)
 
-        return new_image # Return the PIL Image object
+        return new_image  # Return the PIL Image object
 
     except requests.exceptions.HTTPError as e:
         error_msg = f"HTTP error fetching logo: {e}"
@@ -468,6 +479,7 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
             raise ProcessingError(error_msg)
         return None
 
+
 if __name__ == "__main__":
     # Example usage (for testing the script directly)
     # You can still run this script directly to test the core logic
@@ -475,10 +487,10 @@ if __name__ == "__main__":
     team_id2 = "9332"   # Herrestads AIF - known problematic team
     logo_url1 = f"{BASE_LOGO_URL}{team_id1}.png"
     logo_url2 = f"{BASE_LOGO_URL}{team_id2}.png"
-    output_path = "combined_logos_test.png" # Output path for direct script execution
-    background_image_path = str(DEFAULT_BG_PATH) # Use default background
+    output_path = "combined_logos_test.png"  # Output path for direct script execution
+    background_image_path = str(DEFAULT_BG_PATH)  # Use default background
 
-    logger.info(f"--- Starting Logo Merge (Direct Test) ---")
+    logger.info("--- Starting Logo Merge (Direct Test) ---")
     logger.info(f"Team ID 1: {team_id1} ({logo_url1})")
     logger.info(f"Team ID 2: {team_id2} ({logo_url2})")
     logger.info(f"Output Path: {output_path}")
@@ -497,4 +509,4 @@ if __name__ == "__main__":
     else:
         logger.error("Failed to generate combined image in direct test.")
 
-    logger.info(f"--- Logo Merge Finished (Direct Test) ---")
+    logger.info("--- Logo Merge Finished (Direct Test) ---")
