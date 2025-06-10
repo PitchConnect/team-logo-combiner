@@ -3,6 +3,8 @@ import requests
 from io import BytesIO
 import pathlib
 import os
+import time
+import random
 
 # Import error handler if running as part of the Flask app
 try:
@@ -28,6 +30,188 @@ SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 ASSETS_DIR_NAME = "assets"
 DEFAULT_BG_FILENAME = "grass_turf.jpg"
 DEFAULT_BG_PATH = SCRIPT_DIR / ASSETS_DIR_NAME / DEFAULT_BG_FILENAME
+
+def sanitize_image_data(image_data):
+    """
+    Remove null bytes and other problematic characters from image data.
+
+    Args:
+        image_data (bytes): Raw image data that may contain null bytes
+
+    Returns:
+        bytes: Sanitized image data with null bytes removed
+    """
+    if not image_data:
+        logger.warning("Empty image data provided for sanitization")
+        return image_data
+
+    original_size = len(image_data)
+
+    # Check for null bytes
+    if b'\x00' in image_data:
+        logger.warning(f"Found null bytes in image data (size: {original_size} bytes), sanitizing...")
+
+        # Remove null bytes
+        sanitized_data = image_data.replace(b'\x00', b'')
+
+        # Check if we removed too much data (more than 10% of original)
+        sanitized_size = len(sanitized_data)
+        removed_bytes = original_size - sanitized_size
+        removal_percentage = (removed_bytes / original_size) * 100
+
+        if removal_percentage > 10.0:
+            logger.warning(f"Removed {removed_bytes} bytes ({removal_percentage:.1f}%) during sanitization")
+
+        if sanitized_size < (original_size * 0.3):  # If we removed more than 70%
+            logger.error(f"Too much data removed during sanitization: {removed_bytes} bytes "
+                        f"({removal_percentage:.1f}%) - image may be severely corrupted")
+            return None
+
+        logger.info(f"Successfully sanitized image data: {removed_bytes} null bytes removed")
+        return sanitized_data
+
+    # No null bytes found, return original data
+    return image_data
+
+def download_with_retry(url, max_retries=3, base_delay=1.0, timeout=10):
+    """
+    Download content from URL with exponential backoff retry logic.
+
+    Args:
+        url (str): URL to download from
+        max_retries (int): Maximum number of retry attempts
+        base_delay (float): Base delay between retries in seconds
+        timeout (int): Request timeout in seconds
+
+    Returns:
+        requests.Response: HTTP response object if successful, None if failed
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            logger.info(f"Downloading from {url} (attempt {attempt + 1})")
+            response = requests.get(url, stream=True, timeout=timeout)
+            response.raise_for_status()
+            return response
+
+        except requests.exceptions.HTTPError as e:
+            # Don't retry 4xx errors, but retry 5xx errors
+            if e.response and 400 <= e.response.status_code < 500:
+                logger.error(f"Client error {e.response.status_code} for {url} - not retrying")
+                raise
+            elif attempt == max_retries:
+                logger.error(f"Server error {e.response.status_code if e.response else 'unknown'} for {url} - final attempt failed")
+                raise
+            else:
+                logger.warning(f"Server error {e.response.status_code if e.response else 'unknown'} for {url} - will retry")
+
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            if attempt == max_retries:
+                logger.error(f"Network error for {url} after {max_retries + 1} attempts: {e}")
+                raise
+            else:
+                logger.warning(f"Network error for {url} (attempt {attempt + 1}): {e} - will retry")
+
+        # Calculate delay with jitter for next attempt
+        if attempt < max_retries:
+            delay = base_delay * (2 ** attempt)
+            jitter = random.uniform(0.1, 0.3) * delay
+            total_delay = delay + jitter
+            logger.info(f"Waiting {total_delay:.2f} seconds before retry...")
+            time.sleep(total_delay)
+
+    return None
+
+def create_fallback_logo(team_id, size=(200, 200)):
+    """
+    Create a simple fallback logo when the original cannot be processed.
+
+    Args:
+        team_id (str): Team ID for generating a unique color
+        size (tuple): Size of the fallback logo
+
+    Returns:
+        PIL.Image.Image: Simple colored logo
+    """
+    try:
+        # Generate a color based on team ID
+        import hashlib
+        hash_obj = hashlib.md5(str(team_id).encode())
+        hash_hex = hash_obj.hexdigest()
+
+        # Extract RGB values from hash
+        r = int(hash_hex[0:2], 16)
+        g = int(hash_hex[2:4], 16)
+        b = int(hash_hex[4:6], 16)
+
+        # Ensure colors are not too dark or too light
+        r = max(80, min(200, r))
+        g = max(80, min(200, g))
+        b = max(80, min(200, b))
+
+        # Create a simple colored circle
+        image = Image.new('RGBA', size, (0, 0, 0, 0))
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(image)
+
+        # Draw a colored circle
+        margin = size[0] // 8
+        draw.ellipse([margin, margin, size[0] - margin, size[1] - margin],
+                    fill=(r, g, b, 255), outline=(255, 255, 255, 255), width=3)
+
+        logger.info(f"Created fallback logo for team {team_id} with color ({r}, {g}, {b})")
+        return image
+
+    except Exception as e:
+        logger.error(f"Failed to create fallback logo for team {team_id}: {e}")
+        # Ultimate fallback - simple gray circle
+        image = Image.new('RGBA', size, (0, 0, 0, 0))
+        try:
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(image)
+            margin = size[0] // 8
+            draw.ellipse([margin, margin, size[0] - margin, size[1] - margin],
+                        fill=(128, 128, 128, 255), outline=(255, 255, 255, 255), width=3)
+        except:
+            pass
+        return image
+
+def process_image_response(response, url):
+    """
+    Process image response with sanitization and validation.
+
+    Args:
+        response (requests.Response): HTTP response containing image data
+        url (str): URL for logging purposes
+
+    Returns:
+        PIL.Image.Image: Processed image or None if failed
+    """
+    try:
+        # Sanitize the image data
+        sanitized_data = sanitize_image_data(response.content)
+        if sanitized_data is None:
+            logger.error(f"Image data from {url} too corrupted to process")
+            return None
+
+        # Try to open and process the image
+        image_stream = BytesIO(sanitized_data)
+        image = Image.open(image_stream)
+
+        # Convert to RGBA for consistent processing
+        image = image.convert("RGBA")
+
+        # Basic validation
+        width, height = image.size
+        if width <= 0 or height <= 0:
+            logger.error(f"Invalid image dimensions from {url}: {width}x{height}")
+            return None
+
+        logger.info(f"Successfully processed image from {url}: {width}x{height}")
+        return image
+
+    except Exception as e:
+        logger.error(f"Failed to process image from {url}: {e}")
+        return None
 
 def crop_transparent_border(image):
     """Automatically crops transparent borders from an image."""
@@ -72,18 +256,36 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         # Fetch and process first logo
         logger.info(f"Fetching logo 1 from: {url1}")
         try:
-            response1 = requests.get(url1, stream=True, timeout=10)
-            response1.raise_for_status()
-            image1 = Image.open(BytesIO(response1.content)).convert("RGBA")
+            response1 = download_with_retry(url1, max_retries=3, base_delay=2.0, timeout=10)
+            if response1 is None:
+                error_msg = f"Failed to download logo 1 after retries: {url1}"
+                logger.error(error_msg)
+                if HAS_ERROR_HANDLER:
+                    raise ProcessingError(error_msg, {"url": url1})
+                return None
+
+            image1 = process_image_response(response1, url1)
+            if image1 is None:
+                logger.warning(f"Failed to process logo 1 from: {url1}, using fallback")
+                # Extract team ID from URL for fallback
+                team1_id = url1.split('/')[-1].replace('.png', '')
+                image1 = create_fallback_logo(team1_id)
+                if image1 is None:
+                    error_msg = f"Failed to create fallback logo for team {team1_id}"
+                    logger.error(error_msg)
+                    if HAS_ERROR_HANDLER:
+                        raise ProcessingError(error_msg, {"url": url1})
+                    return None
+
         except requests.exceptions.HTTPError as e:
-            error_msg = f"Failed to fetch logo 1: HTTP error {e.response.status_code}"
-            logging.error(error_msg)
+            error_msg = f"Failed to fetch logo 1: HTTP error {e.response.status_code if e.response else 'unknown'}"
+            logger.error(error_msg)
             if HAS_ERROR_HANDLER:
-                raise ResourceNotFoundError(error_msg, {"url": url1, "status_code": e.response.status_code})
+                raise ResourceNotFoundError(error_msg, {"url": url1, "status_code": e.response.status_code if e.response else None})
             return None
         except (requests.exceptions.RequestException, UnidentifiedImageError) as e:
             error_msg = f"Error processing logo 1: {str(e)}"
-            logging.error(error_msg)
+            logger.error(error_msg)
             if HAS_ERROR_HANDLER:
                 raise ProcessingError(error_msg, {"url": url1})
             return None
@@ -100,18 +302,36 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         # Fetch and process second logo
         logger.info(f"Fetching logo 2 from: {url2}")
         try:
-            response2 = requests.get(url2, stream=True, timeout=10)
-            response2.raise_for_status()
-            image2 = Image.open(BytesIO(response2.content)).convert("RGBA")
+            response2 = download_with_retry(url2, max_retries=3, base_delay=2.0, timeout=10)
+            if response2 is None:
+                error_msg = f"Failed to download logo 2 after retries: {url2}"
+                logger.error(error_msg)
+                if HAS_ERROR_HANDLER:
+                    raise ProcessingError(error_msg, {"url": url2})
+                return None
+
+            image2 = process_image_response(response2, url2)
+            if image2 is None:
+                logger.warning(f"Failed to process logo 2 from: {url2}, using fallback")
+                # Extract team ID from URL for fallback
+                team2_id = url2.split('/')[-1].replace('.png', '')
+                image2 = create_fallback_logo(team2_id)
+                if image2 is None:
+                    error_msg = f"Failed to create fallback logo for team {team2_id}"
+                    logger.error(error_msg)
+                    if HAS_ERROR_HANDLER:
+                        raise ProcessingError(error_msg, {"url": url2})
+                    return None
+
         except requests.exceptions.HTTPError as e:
-            error_msg = f"Failed to fetch logo 2: HTTP error {e.response.status_code}"
-            logging.error(error_msg)
+            error_msg = f"Failed to fetch logo 2: HTTP error {e.response.status_code if e.response else 'unknown'}"
+            logger.error(error_msg)
             if HAS_ERROR_HANDLER:
-                raise ResourceNotFoundError(error_msg, {"url": url2, "status_code": e.response.status_code})
+                raise ResourceNotFoundError(error_msg, {"url": url2, "status_code": e.response.status_code if e.response else None})
             return None
         except (requests.exceptions.RequestException, UnidentifiedImageError) as e:
             error_msg = f"Error processing logo 2: {str(e)}"
-            logging.error(error_msg)
+            logger.error(error_msg)
             if HAS_ERROR_HANDLER:
                 raise ProcessingError(error_msg, {"url": url2})
             return None
@@ -251,8 +471,8 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
 if __name__ == "__main__":
     # Example usage (for testing the script directly)
     # You can still run this script directly to test the core logic
-    team_id1 = "7557"  # Example team ID
-    team_id2 = "9590"  # Example team ID
+    team_id1 = "12910"  # IF Haga - known problematic team with null bytes
+    team_id2 = "9332"   # Herrestads AIF - known problematic team
     logo_url1 = f"{BASE_LOGO_URL}{team_id1}.png"
     logo_url2 = f"{BASE_LOGO_URL}{team_id2}.png"
     output_path = "combined_logos_test.png" # Output path for direct script execution
