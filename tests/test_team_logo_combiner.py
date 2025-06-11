@@ -120,16 +120,16 @@ def test_merge_images_invalid_image(mock_get):
     assert result.mode == 'RGBA'
 
 def test_sanitize_image_data_with_null_bytes():
-    """Test sanitization of image data containing null bytes."""
-    # Create image data with null bytes (simulating corrupted data)
-    clean_data = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR'
+    """Test sanitization of PNG image data containing legitimate null bytes."""
+    # Create PNG data with null bytes (this is valid PNG structure)
+    png_data = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR'
 
     # Call sanitization function
-    result = team_logo_combiner.sanitize_image_data(clean_data)
+    result = team_logo_combiner.sanitize_image_data(png_data)
 
-    # Verify null bytes are removed
-    assert b'\x00' not in result
-    assert result == b'\x89PNG\r\n\x1a\n\rIHDR'
+    # For valid PNG files, null bytes should be preserved (they're part of the format)
+    assert result == png_data
+    assert b'\x00' in result  # Null bytes should still be present in PNG
 
 def test_sanitize_image_data_clean():
     """Test sanitization of clean image data."""
@@ -152,15 +152,44 @@ def test_sanitize_image_data_empty():
     assert result == empty_data
 
 def test_sanitize_image_data_too_corrupted():
-    """Test sanitization when too much data would be removed."""
-    # Create data that's mostly null bytes (80% corruption)
+    """Test sanitization when data has trailing null padding."""
+    # Create data that's mostly null bytes with trailing padding (not a valid PNG)
     corrupted_data = b'\x00' * 80 + b'PNG' + b'\x00' * 17
 
     # Call sanitization function
     result = team_logo_combiner.sanitize_image_data(corrupted_data)
 
-    # Should return None for severely corrupted data
-    assert result is None
+    # Should remove trailing null padding and return the cleaned data
+    assert result is not None
+    assert result == b'\x00' * 80 + b'PNG'  # Trailing nulls removed
+    assert len(result) == 83  # 80 + 3 = 83 bytes
+
+
+def test_sanitize_image_data_jpeg_with_padding():
+    """Test sanitization of JPEG data with trailing null padding."""
+    # Create JPEG data with trailing null bytes (padding)
+    jpeg_data = b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xd9'
+    jpeg_with_padding = jpeg_data + b'\x00' * 10
+
+    # Call sanitization function
+    result = team_logo_combiner.sanitize_image_data(jpeg_with_padding)
+
+    # Should remove trailing null padding from JPEG
+    assert result == jpeg_data
+    assert len(result) == len(jpeg_data)  # Padding removed
+    assert not result.endswith(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')  # No 10 trailing nulls
+
+
+def test_sanitize_image_data_unknown_format():
+    """Test sanitization of unknown format with scattered null bytes."""
+    # Create unknown format data with null bytes throughout
+    unknown_data = b'UNKNOWN\x00FORMAT\x00DATA\x00HERE'
+
+    # Call sanitization function
+    result = team_logo_combiner.sanitize_image_data(unknown_data)
+
+    # Should return original data for unknown formats (let PIL handle it)
+    assert result == unknown_data
 
 @patch('requests.get')
 def test_download_with_retry_success_first_attempt(mock_get):
