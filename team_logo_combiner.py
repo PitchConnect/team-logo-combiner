@@ -34,13 +34,17 @@ DEFAULT_BG_PATH = SCRIPT_DIR / ASSETS_DIR_NAME / DEFAULT_BG_FILENAME
 
 def sanitize_image_data(image_data):
     """
-    Remove null bytes and other problematic characters from image data.
+    Validate and potentially fix image data that might cause processing errors.
+
+    For PNG files, null bytes are actually part of the valid format structure,
+    so we should NOT remove them. Instead, we validate the PNG structure and
+    only sanitize if we detect actual corruption patterns.
 
     Args:
         image_data (bytes): Raw image data that may contain null bytes
 
     Returns:
-        bytes: Sanitized image data with null bytes removed
+        bytes: Original or sanitized image data, or None if corrupted beyond repair
     """
     if not image_data:
         logger.warning("Empty image data provided for sanitization")
@@ -49,29 +53,48 @@ def sanitize_image_data(image_data):
     original_size = len(image_data)
 
     # Check for null bytes
-    if b'\x00' in image_data:
-        logger.warning(f"Found null bytes in image data (size: {original_size} bytes), sanitizing...")
+    if b'\x00' not in image_data:
+        logger.debug("No null bytes found in image data")
+        return image_data
 
-        # Remove null bytes
-        sanitized_data = image_data.replace(b'\x00', b'')
+    # Count null bytes for logging
+    null_count = image_data.count(b'\x00')
+    logger.info(f"Found {null_count} null bytes in image data (size: {original_size} bytes)")
 
-        # Check if we removed too much data (more than 10% of original)
-        sanitized_size = len(sanitized_data)
-        removed_bytes = original_size - sanitized_size
-        removal_percentage = (removed_bytes / original_size) * 100
+    # For PNG files, null bytes are legitimate parts of the format
+    # PNG signature: \x89PNG\r\n\x1a\n
+    if image_data.startswith(b'\x89PNG\r\n\x1a\n'):
+        logger.info("Image appears to be a valid PNG format - null bytes are part of structure")
+        return image_data
 
-        if removal_percentage > 10.0:
-            logger.warning(f"Removed {removed_bytes} bytes ({removal_percentage:.1f}%) during sanitization")
+    # For JPEG files, null bytes might be padding or metadata
+    if image_data.startswith(b'\xff\xd8\xff'):
+        logger.info("Image appears to be JPEG format - checking for trailing null padding")
+        # Remove only trailing null bytes (padding)
+        stripped_data = image_data.rstrip(b'\x00')
+        if len(stripped_data) < len(image_data):
+            removed = len(image_data) - len(stripped_data)
+            logger.info(f"Removed {removed} trailing null bytes from JPEG")
+            return stripped_data
+        return image_data
 
-        if sanitized_size < (original_size * 0.3):  # If we removed more than 70%
-            logger.error(f"Too much data removed during sanitization: {removed_bytes} bytes "
-                         f"({removal_percentage:.1f}%) - image may be severely corrupted")
-            return None
+    # For other formats or unknown data, be more cautious
+    # Check if null bytes are clustered at the end (likely padding)
+    last_non_null = len(image_data) - 1
+    while last_non_null >= 0 and image_data[last_non_null] == 0:
+        last_non_null -= 1
 
-        logger.info(f"Successfully sanitized image data: {removed_bytes} null bytes removed")
+    trailing_nulls = len(image_data) - 1 - last_non_null
+
+    if trailing_nulls > 0:
+        logger.info(f"Found {trailing_nulls} trailing null bytes - removing padding")
+        sanitized_data = image_data[:last_non_null + 1]
+        logger.info(f"Removed trailing null padding: {len(image_data)} -> {len(sanitized_data)} bytes")
         return sanitized_data
 
-    # No null bytes found, return original data
+    # If null bytes are scattered throughout and it's not a recognized format,
+    # this might be actual corruption. Return original data and let PIL handle it.
+    logger.warning("Null bytes found throughout unrecognized image format - returning original data")
     return image_data
 
 
