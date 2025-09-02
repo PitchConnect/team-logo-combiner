@@ -6,23 +6,38 @@ import os
 import time
 import random
 
-# Import error handler if running as part of the Flask app
+# Import enhanced logging and error handling
+try:
+    from src.core import (
+        get_logger,
+        handle_image_processing_errors,
+        safe_image_operation,
+        validate_image_parameters,
+        ImageDownloadError,
+        ImageValidationError,
+        ImageCombineError,
+        ImageProcessingError,
+        log_image_processing_metrics,
+    )
+    HAS_ENHANCED_LOGGING = True
+    logger = get_logger(__name__, 'image_processor')
+except ImportError:
+    HAS_ENHANCED_LOGGING = False
+    # Fallback to legacy logging
+    try:
+        import logging_config
+        logger = logging_config.get_logger(__name__)
+    except ImportError:
+        import logging
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logger = logging.getLogger(__name__)
+
+# Import legacy error handler for compatibility
 try:
     from error_handler import ValidationError, ResourceNotFoundError, ProcessingError
     HAS_ERROR_HANDLER = True
 except ImportError:
     HAS_ERROR_HANDLER = False
-
-# Import logging configuration if available
-try:
-    import logging_config
-    logger = logging_config.get_logger(__name__)
-    HAS_LOGGING_CONFIG = True
-except ImportError:
-    import logging
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    logger = logging.getLogger(__name__)
-    HAS_LOGGING_CONFIG = False
 
 # --- Constants and Paths ---
 BASE_LOGO_URL = "https://staticcdn.svenskfotboll.se/img/teams/"
@@ -98,9 +113,10 @@ def sanitize_image_data(image_data):
     return image_data
 
 
+@handle_image_processing_errors("download_image", "downloader") if HAS_ENHANCED_LOGGING else lambda f: f
 def download_with_retry(url, max_retries=3, base_delay=1.0, timeout=10):
     """
-    Download content from URL with exponential backoff retry logic.
+    Download content from URL with exponential backoff retry logic and enhanced logging.
 
     Args:
         url (str): URL to download from
@@ -110,33 +126,55 @@ def download_with_retry(url, max_retries=3, base_delay=1.0, timeout=10):
 
     Returns:
         requests.Response: HTTP response object if successful, None if failed
+
+    Raises:
+        ImageDownloadError: If download fails after all retries (when enhanced logging is available)
     """
     for attempt in range(max_retries + 1):
         try:
-            logger.info(f"Downloading from {url} (attempt {attempt + 1})")
+            logger.debug(f"Downloading from {os.path.basename(url)} (attempt {attempt + 1})")
             response = requests.get(url, stream=True, timeout=timeout)
             response.raise_for_status()
+
+            # Get content length from headers or actual content
+            content_length = response.headers.get('content-length', 'unknown')
+            if content_length == 'unknown' and hasattr(response, 'content'):
+                try:
+                    content_length = len(response.content)
+                except (TypeError, AttributeError):
+                    content_length = 'stream'
+
+            logger.debug(f"Successfully downloaded {os.path.basename(url)} ({content_length} bytes)")
             return response
 
         except requests.exceptions.HTTPError as e:
             # Don't retry 4xx errors, but retry 5xx errors
             if e.response and 400 <= e.response.status_code < 500:
-                logger.error(f"Client error {e.response.status_code} for {url} - not retrying")
+                error_msg = f"Client error {e.response.status_code} for {os.path.basename(url)} - not retrying"
+                logger.error(error_msg)
+                if HAS_ENHANCED_LOGGING:
+                    raise ImageDownloadError(error_msg) from e
                 raise
             elif attempt == max_retries:
                 status = e.response.status_code if e.response else 'unknown'
-                logger.error(f"Server error {status} for {url} - final attempt failed")
+                error_msg = f"Server error {status} for {os.path.basename(url)} - final attempt failed"
+                logger.error(error_msg)
+                if HAS_ENHANCED_LOGGING:
+                    raise ImageDownloadError(error_msg) from e
                 raise
             else:
                 status = e.response.status_code if e.response else 'unknown'
-                logger.warning(f"Server error {status} for {url} - will retry")
+                logger.warning(f"Server error {status} for {os.path.basename(url)} - will retry")
 
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             if attempt == max_retries:
-                logger.error(f"Network error for {url} after {max_retries + 1} attempts: {e}")
+                error_msg = f"Network error for {os.path.basename(url)} after {max_retries + 1} attempts: {e}"
+                logger.error(error_msg)
+                if HAS_ENHANCED_LOGGING:
+                    raise ImageDownloadError(error_msg) from e
                 raise
             else:
-                logger.warning(f"Network error for {url} (attempt {attempt + 1}): {e} - will retry")
+                logger.warning(f"Network error for {os.path.basename(url)} (attempt {attempt + 1}): {e} - will retry")
 
         # Calculate delay with jitter for next attempt
         if attempt < max_retries:
@@ -256,64 +294,84 @@ def crop_transparent_border(image):
         return image
 
 
+@handle_image_processing_errors("merge_images", "combiner") if HAS_ENHANCED_LOGGING else lambda f: f
 def merge_images_from_urls(url1, url2, background_image_path=None):
     """
     Merges two images from URLs, crops borders, resizes, and combines into a square canvas.
-    Returns a PIL Image object.
+    Returns a PIL Image object with enhanced logging and error handling.
+
+    Args:
+        url1 (str): URL for the first team logo
+        url2 (str): URL for the second team logo
+        background_image_path (str, optional): Path to background image
+
+    Returns:
+        PIL.Image: Combined image or None if processing fails
 
     Raises:
-        requests.exceptions.HTTPError: If the logo URLs return non-200 status codes
-        requests.exceptions.ConnectionError: If there's a network error
-        UnidentifiedImageError: If the image data cannot be processed
-        ProcessingError: If image processing fails
-        ResourceNotFoundError: If resources like background images are not found
+        ImageDownloadError: If logo URLs cannot be downloaded
+        ImageValidationError: If URLs are invalid
+        ImageCombineError: If image combination fails
+        ImageProcessingError: If any other processing error occurs
     """
-    try:
-        # Validate URLs
-        if not url1 or not isinstance(url1, str):
-            error_msg = "Invalid URL for logo 1"
-            logger.error(error_msg)
-            if HAS_ERROR_HANDLER:
-                raise ValidationError(error_msg, {"url": url1})
-            return None
+    start_time = time.time()
 
-        if not url2 or not isinstance(url2, str):
-            error_msg = "Invalid URL for logo 2"
-            logging.error(error_msg)
-            if HAS_ERROR_HANDLER:
-                raise ValidationError(error_msg, {"url": url2})
-            return None
+    try:
+        # Enhanced URL validation
+        if HAS_ENHANCED_LOGGING:
+            validate_image_parameters(url1=url1, url2=url2)
+        else:
+            # Legacy validation
+            if not url1 or not isinstance(url1, str):
+                error_msg = "Invalid URL for logo 1"
+                logger.error(error_msg)
+                if HAS_ERROR_HANDLER:
+                    raise ValidationError(error_msg, {"url": url1})
+                return None
+
+            if not url2 or not isinstance(url2, str):
+                error_msg = "Invalid URL for logo 2"
+                logger.error(error_msg)
+                if HAS_ERROR_HANDLER:
+                    raise ValidationError(error_msg, {"url": url2})
+                return None
 
         # Fetch and process first logo
-        logger.info(f"Fetching logo 1 from: {url1}")
+        logger.info(f"Fetching logo 1 from: {os.path.basename(url1)}")
         try:
             response1 = download_with_retry(url1, max_retries=3, base_delay=2.0, timeout=10)
             if response1 is None:
-                error_msg = f"Failed to download logo 1 after retries: {url1}"
+                error_msg = f"Failed to download logo 1 after retries"
                 logger.error(error_msg)
-                if HAS_ERROR_HANDLER:
-                    raise ProcessingError(error_msg, {"url": url1})
+                if HAS_ENHANCED_LOGGING:
+                    raise ImageDownloadError(error_msg)
+                elif HAS_ERROR_HANDLER:
+                    raise ProcessingError(error_msg, {"url": os.path.basename(url1)})
                 return None
 
             image1 = process_image_response(response1, url1)
             if image1 is None:
-                logger.warning(f"Failed to process logo 1 from: {url1}, using fallback")
+                logger.warning(f"Failed to process logo 1 from: {os.path.basename(url1)}, using fallback")
                 # Extract team ID from URL for fallback
                 team1_id = url1.split('/')[-1].replace('.png', '')
                 image1 = create_fallback_logo(team1_id)
                 if image1 is None:
                     error_msg = f"Failed to create fallback logo for team {team1_id}"
                     logger.error(error_msg)
-                    if HAS_ERROR_HANDLER:
-                        raise ProcessingError(error_msg, {"url": url1})
+                    if HAS_ENHANCED_LOGGING:
+                        raise ImageProcessingError(error_msg)
+                    elif HAS_ERROR_HANDLER:
+                        raise ProcessingError(error_msg, {"team_id": team1_id})
                     return None
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else 'unknown'
             error_msg = f"Failed to fetch logo 1: HTTP error {status}"
             logger.error(error_msg)
-            if HAS_ERROR_HANDLER:
-                raise ResourceNotFoundError(error_msg, {"url": url1, "status_code": status})
+            if HAS_ENHANCED_LOGGING:
+                raise ImageDownloadError(error_msg) from e
+            elif HAS_ERROR_HANDLER:
+                raise ResourceNotFoundError(error_msg, {"url": os.path.basename(url1), "status_code": status})
             return None
         except (requests.exceptions.RequestException, UnidentifiedImageError) as e:
             error_msg = f"Error processing logo 1: {str(e)}"

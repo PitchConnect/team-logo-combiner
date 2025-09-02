@@ -79,8 +79,15 @@ def test_merge_images_http_error(mock_get):
     mock_get.return_value = mock_response
 
     # Call the function - should raise an exception for 4xx errors
-    # The function catches ResourceNotFoundError and re-raises as ProcessingError
-    with pytest.raises(error_handler.ProcessingError):
+    # Enhanced logging raises ImageProcessingError for processing failures
+    try:
+        from src.core.error_handling import ImageProcessingError
+        expected_exception = ImageProcessingError
+    except ImportError:
+        # Fallback to legacy error handler
+        expected_exception = error_handler.ProcessingError
+
+    with pytest.raises(expected_exception):
         team_logo_combiner.merge_images_from_urls(
             'http://example.com/logo1.png',
             'http://example.com/logo2.png'
@@ -93,7 +100,15 @@ def test_merge_images_network_error(mock_get):
     mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
 
     # Call the function - should raise an exception after retries are exhausted
-    with pytest.raises(error_handler.ProcessingError):
+    # Enhanced logging raises ImageProcessingError for processing failures
+    try:
+        from src.core.error_handling import ImageProcessingError
+        expected_exception = ImageProcessingError
+    except ImportError:
+        # Fallback to legacy error handler
+        expected_exception = error_handler.ProcessingError
+
+    with pytest.raises(expected_exception):
         team_logo_combiner.merge_images_from_urls(
             'http://example.com/logo1.png',
             'http://example.com/logo2.png'
@@ -239,7 +254,15 @@ def test_download_with_retry_exhausted(mock_sleep, mock_get):
     mock_get.side_effect = requests.exceptions.Timeout("Timeout")
 
     # Call function and expect exception
-    with pytest.raises(requests.exceptions.Timeout):
+    # Enhanced logging raises ImageDownloadError instead of the original exception
+    try:
+        from src.core.error_handling import ImageDownloadError
+        expected_exception = ImageDownloadError
+    except ImportError:
+        # Fallback to original exception
+        expected_exception = requests.exceptions.Timeout
+
+    with pytest.raises(expected_exception):
         team_logo_combiner.download_with_retry('http://example.com/test.png', max_retries=2)
 
     # Verify all attempts were made

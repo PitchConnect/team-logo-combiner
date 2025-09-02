@@ -10,7 +10,7 @@ def test_health_endpoint(client):
     assert response.status_code == 200
     data = json.loads(response.data)
     assert data['status'] == 'healthy'
-    assert data['service'] == 'whatsapp-avatar-service'
+    assert data['service'] == 'team-logo-combiner'
     assert 'timestamp' in data
 
 def test_create_avatar_missing_team_ids(client):
