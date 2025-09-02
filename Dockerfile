@@ -10,8 +10,7 @@ RUN pip install -r requirements.txt
 
 COPY app.py app.py
 COPY team_logo_combiner.py team_logo_combiner.py
-COPY error_handler.py error_handler.py
-COPY logging_config.py logging_config.py
+COPY src/ src/
 
 # Create assets directory and copy default background image
 RUN mkdir assets
