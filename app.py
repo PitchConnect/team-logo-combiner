@@ -14,9 +14,9 @@ from src.core import (
     validate_image_parameters,
 )
 
-# Import legacy error handler for compatibility
-import error_handler
-from error_handler import ValidationError, ProcessingError
+# Use enhanced logging error classes instead of legacy ones
+# ValidationError -> ImageValidationError
+# ProcessingError -> ImageProcessingError
 
 # Configure enhanced logging early
 configure_logging(
@@ -34,8 +34,25 @@ app_logger = get_logger(__name__, 'app')
 # --- Initialize Flask App ---
 app = Flask(__name__)
 
-# Register error handlers
-app = error_handler.register_error_handlers(app)
+# Register enhanced logging error handlers
+@app.errorhandler(ImageValidationError)
+@app.errorhandler(ImageProcessingError)
+def handle_image_errors(error):
+    """Handle image processing errors with enhanced logging."""
+    app_logger.error(f"Image processing error: {str(error)}")
+    return jsonify({
+        "error": str(error),
+        "type": error.__class__.__name__
+    }), getattr(error, 'status_code', 400)
+
+@app.errorhandler(Exception)
+def handle_generic_error(error):
+    """Handle generic errors with enhanced logging."""
+    app_logger.error(f"Unexpected error: {str(error)}")
+    return jsonify({
+        "error": "Internal server error",
+        "type": error.__class__.__name__
+    }), 500
 
 # --- Define Assets Path (within Docker image) ---
 ASSETS_DIR = "/app/assets"  # Assuming 'assets' folder will be in the root of the Docker image
@@ -67,7 +84,7 @@ def create_avatar():
     data = request.get_json()
     if not data:
         app_logger.warning("Request missing JSON body")
-        raise ValidationError("Missing JSON body in request")
+        raise ImageValidationError("Missing JSON body in request")
 
     # Validate required fields
     missing_fields = []
@@ -78,7 +95,7 @@ def create_avatar():
 
     if missing_fields:
         app_logger.warning(f"Bad request: Missing fields in JSON body: {', '.join(missing_fields)}")
-        raise ValidationError(
+        raise ImageValidationError(
             f"Missing required fields: {', '.join(missing_fields)}",
             details={"missing_fields": missing_fields}
         )
@@ -89,10 +106,10 @@ def create_avatar():
 
     if not team1_id:
         app_logger.warning("team1_id is empty after validation")
-        raise ValidationError("team1_id cannot be empty")
+        raise ImageValidationError("team1_id cannot be empty")
     if not team2_id:
         app_logger.warning("team2_id is empty after validation")
-        raise ValidationError("team2_id cannot be empty")
+        raise ImageValidationError("team2_id cannot be empty")
 
     # Construct logo URLs
     logo_url1 = f"{team_logo_combiner.BASE_LOGO_URL}{team1_id}.png"
@@ -111,7 +128,7 @@ def create_avatar():
 
         if not combined_image:
             app_logger.error("Failed to generate combined image in team_logo_combiner")
-            raise ProcessingError(
+            raise ImageProcessingError(
                 "Failed to generate combined avatar image",
                 details={
                     "team1_id": team1_id,
@@ -129,10 +146,10 @@ def create_avatar():
 
     except Exception as e:
         app_logger.error(f"Error processing avatar creation: {str(e)}")
-        if isinstance(e, (ValidationError, ProcessingError)):
+        if isinstance(e, (ImageValidationError, ImageProcessingError)):
             raise
         else:
-            raise ProcessingError(f"Unexpected error during image processing: {str(e)}")
+            raise ImageProcessingError(f"Unexpected error during image processing: {str(e)}")
 
 
 if __name__ == '__main__':
