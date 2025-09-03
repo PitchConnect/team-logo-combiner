@@ -36,14 +36,22 @@ app = Flask(__name__)
 
 # Register enhanced logging error handlers
 @app.errorhandler(ImageValidationError)
+def handle_validation_errors(error):
+    """Handle image validation errors with enhanced logging."""
+    app_logger.error(f"Image validation error: {str(error)}")
+    return jsonify({
+        "error": str(error),
+        "type": error.__class__.__name__
+    }), 400
+
 @app.errorhandler(ImageProcessingError)
-def handle_image_errors(error):
+def handle_processing_errors(error):
     """Handle image processing errors with enhanced logging."""
     app_logger.error(f"Image processing error: {str(error)}")
     return jsonify({
         "error": str(error),
         "type": error.__class__.__name__
-    }), getattr(error, 'status_code', 400)
+    }), 500
 
 @app.errorhandler(Exception)
 def handle_generic_error(error):
@@ -95,10 +103,7 @@ def create_avatar():
 
     if missing_fields:
         app_logger.warning(f"Bad request: Missing fields in JSON body: {', '.join(missing_fields)}")
-        raise ImageValidationError(
-            f"Missing required fields: {', '.join(missing_fields)}",
-            details={"missing_fields": missing_fields}
-        )
+        raise ImageValidationError(f"Missing required fields: {', '.join(missing_fields)}")
 
     # Validate field values
     team1_id = str(data['team1_id']).strip()  # Ensure IDs are strings and trim whitespace
@@ -128,14 +133,7 @@ def create_avatar():
 
         if not combined_image:
             app_logger.error("Failed to generate combined image in team_logo_combiner")
-            raise ImageProcessingError(
-                "Failed to generate combined avatar image",
-                details={
-                    "team1_id": team1_id,
-                    "team2_id": team2_id,
-                    "processing_time": processing_time
-                }
-            )
+            raise ImageProcessingError("Failed to generate combined avatar image")
 
         # Return the image
         app_logger.info(f"Successfully generated combined image in {processing_time:.3f}s")
