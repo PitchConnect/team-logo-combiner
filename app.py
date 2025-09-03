@@ -68,20 +68,25 @@ DEFAULT_BACKGROUND_PATH = os.path.join(ASSETS_DIR, "grass_turf.jpg")
 
 
 @app.route('/health', methods=['GET'])
-@handle_api_errors("health_check", "app")
 def health_check():
     """
-    Health check endpoint for Docker health checks and monitoring.
+    Optimized health check endpoint with minimal logging.
     Returns basic service status and uptime information.
     """
-    app_logger.info("Health check requested")
-    return jsonify({
+    start_time = time.time()
+
+    response = {
         "status": "healthy",
         "service": "team-logo-combiner",
         "version": "2.1.0",
         "timestamp": time.time(),
         "enhanced_logging": "v2.1.0"
-    })
+    }
+
+    duration = time.time() - start_time
+    app_logger.info(f"✅ Health check OK ({duration:.3f}s)")
+
+    return jsonify(response)
 
 
 @app.route('/create_avatar', methods=['POST'])
