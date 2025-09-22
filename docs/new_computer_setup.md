@@ -47,7 +47,7 @@ If you prefer to set up manually:
    ```bash
    # On macOS/Linux
    source .venv/bin/activate
-   
+
    # On Windows
    .venv\Scripts\activate
    ```
@@ -88,7 +88,7 @@ If you prefer to set up manually:
    ```bash
    ./start-service.sh
    ```
-   
+
    Or manually:
    ```bash
    docker-compose up --build

@@ -16,7 +16,7 @@ jobs:
           PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
           echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "Processing PR #$PR_NUMBER with CI status: ${{ github.event.workflow_run.conclusion }}"
-      
+
       - name: Call reusable workflow
         uses: PitchConnect/.github/.github/workflows/ci-failure-tracker.yml@main
         with:

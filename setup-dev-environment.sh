@@ -24,7 +24,7 @@ if ! command -v docker &> /dev/null; then
     echo "Please install Docker from https://docs.docker.com/get-docker/"
 else
     echo "✅ Docker is installed"
-    
+
     # Check if Docker Compose is installed
     if ! command -v docker-compose &> /dev/null; then
         echo "⚠️ Docker Compose is not installed. Some features may not work."

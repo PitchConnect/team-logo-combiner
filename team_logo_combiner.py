@@ -1,14 +1,16 @@
-from PIL import Image, UnidentifiedImageError
-import requests
-from io import BytesIO
-import pathlib
 import os
-import time
+import pathlib
 import random
+import time
+from io import BytesIO
+
+import requests
+from PIL import Image, UnidentifiedImageError
 
 # Import error handler if running as part of the Flask app
 try:
-    from error_handler import ValidationError, ResourceNotFoundError, ProcessingError
+    from error_handler import ProcessingError, ResourceNotFoundError, ValidationError
+
     HAS_ERROR_HANDLER = True
 except ImportError:
     HAS_ERROR_HANDLER = False
@@ -16,11 +18,13 @@ except ImportError:
 # Import logging configuration if available
 try:
     import logging_config
+
     logger = logging_config.get_logger(__name__)
     HAS_LOGGING_CONFIG = True
 except ImportError:
     import logging
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     logger = logging.getLogger(__name__)
     HAS_LOGGING_CONFIG = False
 
@@ -49,11 +53,13 @@ def sanitize_image_data(image_data):
     original_size = len(image_data)
 
     # Check for null bytes
-    if b'\x00' in image_data:
-        logger.warning(f"Found null bytes in image data (size: {original_size} bytes), sanitizing...")
+    if b"\x00" in image_data:
+        logger.warning(
+            f"Found null bytes in image data (size: {original_size} bytes), sanitizing..."
+        )
 
         # Remove null bytes
-        sanitized_data = image_data.replace(b'\x00', b'')
+        sanitized_data = image_data.replace(b"\x00", b"")
 
         # Check if we removed too much data (more than 10% of original)
         sanitized_size = len(sanitized_data)
@@ -61,11 +67,15 @@ def sanitize_image_data(image_data):
         removal_percentage = (removed_bytes / original_size) * 100
 
         if removal_percentage > 10.0:
-            logger.warning(f"Removed {removed_bytes} bytes ({removal_percentage:.1f}%) during sanitization")
+            logger.warning(
+                f"Removed {removed_bytes} bytes ({removal_percentage:.1f}%) during sanitization"
+            )
 
         if sanitized_size < (original_size * 0.3):  # If we removed more than 70%
-            logger.error(f"Too much data removed during sanitization: {removed_bytes} bytes "
-                         f"({removal_percentage:.1f}%) - image may be severely corrupted")
+            logger.error(
+                f"Too much data removed during sanitization: {removed_bytes} bytes "
+                f"({removal_percentage:.1f}%) - image may be severely corrupted"
+            )
             return None
 
         logger.info(f"Successfully sanitized image data: {removed_bytes} null bytes removed")
@@ -101,11 +111,11 @@ def download_with_retry(url, max_retries=3, base_delay=1.0, timeout=10):
                 logger.error(f"Client error {e.response.status_code} for {url} - not retrying")
                 raise
             elif attempt == max_retries:
-                status = e.response.status_code if e.response else 'unknown'
+                status = e.response.status_code if e.response else "unknown"
                 logger.error(f"Server error {status} for {url} - final attempt failed")
                 raise
             else:
-                status = e.response.status_code if e.response else 'unknown'
+                status = e.response.status_code if e.response else "unknown"
                 logger.warning(f"Server error {status} for {url} - will retry")
 
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
@@ -117,8 +127,8 @@ def download_with_retry(url, max_retries=3, base_delay=1.0, timeout=10):
 
         # Calculate delay with jitter for next attempt
         if attempt < max_retries:
-            delay = base_delay * (2 ** attempt)
-            jitter = random.uniform(0.1, 0.3) * delay
+            delay = base_delay * (2**attempt)
+            jitter = random.uniform(0.1, 0.3) * delay  # nosec B311
             total_delay = delay + jitter
             logger.info(f"Waiting {total_delay:.2f} seconds before retry...")
             time.sleep(total_delay)
@@ -140,7 +150,8 @@ def create_fallback_logo(team_id, size=(200, 200)):
     try:
         # Generate a color based on team ID
         import hashlib
-        hash_obj = hashlib.md5(str(team_id).encode())
+
+        hash_obj = hashlib.md5  # nosec B324  # nosec B324(str(team_id).encode())
         hash_hex = hash_obj.hexdigest()
 
         # Extract RGB values from hash
@@ -154,14 +165,19 @@ def create_fallback_logo(team_id, size=(200, 200)):
         b = max(80, min(200, b))
 
         # Create a simple colored circle
-        image = Image.new('RGBA', size, (0, 0, 0, 0))
+        image = Image.new("RGBA", size, (0, 0, 0, 0))
         from PIL import ImageDraw
+
         draw = ImageDraw.Draw(image)
 
         # Draw a colored circle
         margin = size[0] // 8
-        draw.ellipse([margin, margin, size[0] - margin, size[1] - margin],
-                     fill=(r, g, b, 255), outline=(255, 255, 255, 255), width=3)
+        draw.ellipse(
+            [margin, margin, size[0] - margin, size[1] - margin],
+            fill=(r, g, b, 255),
+            outline=(255, 255, 255, 255),
+            width=3,
+        )
 
         logger.info(f"Created fallback logo for team {team_id} with color ({r}, {g}, {b})")
         return image
@@ -169,14 +185,19 @@ def create_fallback_logo(team_id, size=(200, 200)):
     except Exception as e:
         logger.error(f"Failed to create fallback logo for team {team_id}: {e}")
         # Ultimate fallback - simple gray circle
-        image = Image.new('RGBA', size, (0, 0, 0, 0))
+        image = Image.new("RGBA", size, (0, 0, 0, 0))
         try:
             from PIL import ImageDraw
+
             draw = ImageDraw.Draw(image)
             margin = size[0] // 8
-            draw.ellipse([margin, margin, size[0] - margin, size[1] - margin],
-                         fill=(128, 128, 128, 255), outline=(255, 255, 255, 255), width=3)
-        except Exception:
+            draw.ellipse(
+                [margin, margin, size[0] - margin, size[1] - margin],
+                fill=(128, 128, 128, 255),
+                outline=(255, 255, 255, 255),
+                width=3,
+            )
+        except Exception:  # nosec B110  # nosec B110
             pass
         return image
 
@@ -222,7 +243,7 @@ def process_image_response(response, url):
 
 def crop_transparent_border(image):
     """Automatically crops transparent borders from an image."""
-    if image.mode != 'RGBA':
+    if image.mode != "RGBA":
         return image
     bbox = image.getbbox()
     if bbox:
@@ -276,7 +297,7 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
             if image1 is None:
                 logger.warning(f"Failed to process logo 1 from: {url1}, using fallback")
                 # Extract team ID from URL for fallback
-                team1_id = url1.split('/')[-1].replace('.png', '')
+                team1_id = url1.split("/")[-1].replace(".png", "")
                 image1 = create_fallback_logo(team1_id)
                 if image1 is None:
                     error_msg = f"Failed to create fallback logo for team {team1_id}"
@@ -286,7 +307,7 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
                     return None
 
         except requests.exceptions.HTTPError as e:
-            status = e.response.status_code if e.response else 'unknown'
+            status = e.response.status_code if e.response else "unknown"
             error_msg = f"Failed to fetch logo 1: HTTP error {status}"
             logger.error(error_msg)
             if HAS_ERROR_HANDLER:
@@ -302,7 +323,9 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         logger.info("Cropping transparent border for logo 1")
         image1_cropped = crop_transparent_border(image1)
         if not image1_cropped or image1_cropped.size == (0, 0):
-            error_msg = f"Logo 1 from {url1} seems to be fully transparent or invalid after cropping."
+            error_msg = (
+                f"Logo 1 from {url1} seems to be fully transparent or invalid after cropping."
+            )
             logger.error(error_msg)
             if HAS_ERROR_HANDLER:
                 raise ProcessingError(error_msg, {"url": url1})
@@ -323,7 +346,7 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
             if image2 is None:
                 logger.warning(f"Failed to process logo 2 from: {url2}, using fallback")
                 # Extract team ID from URL for fallback
-                team2_id = url2.split('/')[-1].replace('.png', '')
+                team2_id = url2.split("/")[-1].replace(".png", "")
                 image2 = create_fallback_logo(team2_id)
                 if image2 is None:
                     error_msg = f"Failed to create fallback logo for team {team2_id}"
@@ -333,7 +356,7 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
                     return None
 
         except requests.exceptions.HTTPError as e:
-            status = e.response.status_code if e.response else 'unknown'
+            status = e.response.status_code if e.response else "unknown"
             error_msg = f"Failed to fetch logo 2: HTTP error {status}"
             logger.error(error_msg)
             if HAS_ERROR_HANDLER:
@@ -349,7 +372,9 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         logger.info("Cropping transparent border for logo 2")
         image2_cropped = crop_transparent_border(image2)
         if not image2_cropped or image2_cropped.size == (0, 0):
-            error_msg = f"Logo 2 from {url2} seems to be fully transparent or invalid after cropping."
+            error_msg = (
+                f"Logo 2 from {url2} seems to be fully transparent or invalid after cropping."
+            )
             logger.error(error_msg)
             if HAS_ERROR_HANDLER:
                 raise ProcessingError(error_msg, {"url": url2})
@@ -359,7 +384,9 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         width2, height2 = image2_cropped.size
 
         if height1 <= 0 or height2 <= 0:
-            logger.error("One or both logos have zero or negative height after cropping. Cannot proceed.")
+            logger.error(
+                "One or both logos have zero or negative height after cropping. Cannot proceed."
+            )
             return None
         target_height = min(height1, height2)
 
@@ -368,7 +395,9 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
             ratio = target_height / float(height1)
             new_width1 = int(width1 * ratio)
             if new_width1 > 0 and target_height > 0:
-                image1_cropped = image1_cropped.resize((new_width1, target_height), Image.Resampling.LANCZOS)
+                image1_cropped = image1_cropped.resize(
+                    (new_width1, target_height), Image.Resampling.LANCZOS
+                )
                 width1, height1 = image1_cropped.size
             else:
                 logger.warning("Skipping resize for logo 1 due to zero dimension calculation.")
@@ -377,7 +406,9 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
             ratio = target_height / float(height2)
             new_width2 = int(width2 * ratio)
             if new_width2 > 0 and target_height > 0:
-                image2_cropped = image2_cropped.resize((new_width2, target_height), Image.Resampling.LANCZOS)
+                image2_cropped = image2_cropped.resize(
+                    (new_width2, target_height), Image.Resampling.LANCZOS
+                )
                 width2, height2 = image2_cropped.size
             else:
                 logger.warning("Skipping resize for logo 2 due to zero dimension calculation.")
@@ -391,9 +422,11 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
 
         padding_horizontal = int(combined_width * 0.10)
         padding_vertical = int(combined_height * 0.10)
-        canvas_size = max(1, combined_width + 2 * padding_horizontal, combined_height + 2 * padding_vertical)
+        canvas_size = max(
+            1, combined_width + 2 * padding_horizontal, combined_height + 2 * padding_vertical
+        )
 
-        new_image = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
+        new_image = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
 
         bg_path_to_use = background_image_path if background_image_path else DEFAULT_BG_PATH
 
@@ -407,10 +440,13 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
                     logger.warning(error_msg)
             else:
                 try:
-                    background = Image.open(bg_path_to_use).convert('RGBA')
+                    background = Image.open(bg_path_to_use).convert("RGBA")
                     bg_width, bg_height = background.size
                     if bg_width <= 0 or bg_height <= 0:
-                        logger.warning(f"Background image '{bg_path_to_use}' has zero dimension. Skipping background.")
+                        logger.warning(
+                            f"Background image '{bg_path_to_use}' has zero dimension. "
+                            f"Skipping background."
+                        )
                     else:
                         min_bg_dimension = min(bg_width, bg_height)
                         left = (bg_width - min_bg_dimension) // 2
@@ -419,7 +455,8 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
                         bottom = top + min_bg_dimension
                         cropped_background = background.crop((left, top, right, bottom))
                         resized_background = cropped_background.resize(
-                            (canvas_size, canvas_size), Image.Resampling.LANCZOS)
+                            (canvas_size, canvas_size), Image.Resampling.LANCZOS
+                        )
                         new_image.paste(resized_background, (0, 0))
                         logger.info(f"Applied background image: {bg_path_to_use}")
                 except UnidentifiedImageError as e:
@@ -446,8 +483,8 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         x_offset2 = x_offset1 + width1
         y_offset2 = (canvas_size - height2) // 2
 
-        mask1 = image1_cropped if image1_cropped.mode == 'RGBA' else None
-        mask2 = image2_cropped if image2_cropped.mode == 'RGBA' else None
+        mask1 = image1_cropped if image1_cropped.mode == "RGBA" else None
+        mask2 = image2_cropped if image2_cropped.mode == "RGBA" else None
 
         new_image.paste(image1_cropped, (x_offset1, y_offset1), mask=mask1)
         new_image.paste(image2_cropped, (x_offset2, y_offset2), mask=mask2)
@@ -458,13 +495,17 @@ def merge_images_from_urls(url1, url2, background_image_path=None):
         error_msg = f"HTTP error fetching logo: {e}"
         logging.error(error_msg)
         if HAS_ERROR_HANDLER:
-            raise ResourceNotFoundError(error_msg, {"url": e.request.url if hasattr(e, 'request') else "unknown"})
+            raise ResourceNotFoundError(
+                error_msg, {"url": e.request.url if hasattr(e, "request") else "unknown"}
+            )
         return None
     except requests.exceptions.RequestException as e:
         error_msg = f"Network error downloading image: {e}"
         logging.error(error_msg)
         if HAS_ERROR_HANDLER:
-            raise ProcessingError(error_msg, {"url": e.request.url if hasattr(e, 'request') else "unknown"})
+            raise ProcessingError(
+                error_msg, {"url": e.request.url if hasattr(e, "request") else "unknown"}
+            )
         return None
     except UnidentifiedImageError as e:
         error_msg = f"Invalid image format: {e}"
@@ -484,7 +525,7 @@ if __name__ == "__main__":
     # Example usage (for testing the script directly)
     # You can still run this script directly to test the core logic
     team_id1 = "12910"  # IF Haga - known problematic team with null bytes
-    team_id2 = "9332"   # Herrestads AIF - known problematic team
+    team_id2 = "9332"  # Herrestads AIF - known problematic team
     logo_url1 = f"{BASE_LOGO_URL}{team_id1}.png"
     logo_url2 = f"{BASE_LOGO_URL}{team_id2}.png"
     output_path = "combined_logos_test.png"  # Output path for direct script execution
