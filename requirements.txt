@@ -1,6 +1,8 @@
 flask
 Pillow
 requests
+redis>=4.5.0
+types-redis>=4.5.0
 pytest
 pytest-flask
 pytest-mock
