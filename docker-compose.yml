@@ -22,11 +22,43 @@ services:
       # Optional: Mount custom assets directory if you want to update assets without rebuilding
       - ./assets:/app/assets:ro
     environment:
-
       - TZ=Europe/Stockholm
-      # Add environment variables here if needed in the future
+      # Flask configuration
       - FLASK_ENV=production
       - LOG_LEVEL=INFO
+      # Redis configuration
+      - REDIS_URL=redis://fogis-redis:6379
+      - REDIS_PUBSUB_ENABLED=true
+      - REDIS_AVATAR_REQUESTS_CHANNEL=fogis:avatars:requests
+      - REDIS_AVATAR_RESULTS_CHANNEL=fogis:avatars:results
+      - REDIS_SERVICE_STATUS_CHANNEL=fogis:avatars:status
+      # Processing configuration
+      - AVATAR_RESULT_STORAGE=base64
+      - AVATAR_PROCESSING_TIMEOUT=30
+      # Communication mode: 'http', 'redis', or 'dual' (default: dual for backward compatibility)
+      - COMMUNICATION_MODE=dual
+    depends_on:
+      - fogis-redis
+
+  fogis-redis:
+    image: redis:7-alpine
+    container_name: fogis-redis
+    networks:
+      - fogis-network
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  redis-data:
 
 networks:
   fogis-network:
