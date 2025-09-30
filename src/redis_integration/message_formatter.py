@@ -7,7 +7,7 @@ Provides message formatting utilities for Redis pub/sub integration.
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 
@@ -41,7 +41,7 @@ class AvatarRequestMessageFormatter:
         """
         message = {
             "message_id": str(uuid.uuid4()),
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "source": "team-logo-combiner",
             "version": "1.0",
             "type": "avatar_request",
@@ -134,7 +134,7 @@ class AvatarResultMessageFormatter:
         message = {
             "message_id": str(uuid.uuid4()),
             "request_id": request_id,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "source": "team-logo-combiner",
             "version": "1.0",
             "type": "avatar_result",
@@ -176,7 +176,7 @@ class AvatarResultMessageFormatter:
         """
         message = {
             "message_id": str(uuid.uuid4()),
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "source": "team-logo-combiner",
             "version": "1.0",
             "type": "service_status",
